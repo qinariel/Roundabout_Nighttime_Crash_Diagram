@@ -28,6 +28,62 @@ html, body, #map { height:100%; margin:0; font-family: Arial, sans-serif; }
 .year-filter-control .year-actions { display:flex; gap:6px; margin-top:7px; }
 .year-filter-control button { font-size:12px; padding:2px 6px; border:1px solid #888; background:#f8f8f8; border-radius:3px; cursor:pointer; }
 .year-filter-control .year-count { margin-top:6px; font-size:12px; color:#444; }
+
+.coordinate-search-control {
+  background: rgba(255,255,255,.97);
+  padding: 9px 10px;
+  border-radius: 5px;
+  box-shadow: 0 1px 5px rgba(0,0,0,.35);
+  font-size: 13px;
+  color: #222;
+  width: 245px;
+}
+.coordinate-search-control .coordinate-search-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.coordinate-search-control .coordinate-search-row {
+  display: flex;
+  gap: 5px;
+}
+.coordinate-search-control input {
+  min-width: 0;
+  flex: 1;
+  padding: 5px 7px;
+  border: 1px solid #888;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.coordinate-search-control button {
+  padding: 5px 8px;
+  border: 1px solid #777;
+  background: #f6f6f6;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.coordinate-search-control button:hover {
+  background: #eaeaea;
+}
+.coordinate-search-control .coordinate-search-help {
+  margin-top: 5px;
+  font-size: 11px;
+  color: #555;
+  line-height: 1.25;
+}
+.coordinate-search-control .coordinate-search-message {
+  margin-top: 5px;
+  min-height: 14px;
+  font-size: 11px;
+  line-height: 1.25;
+}
+.coordinate-search-control .coordinate-search-message.error {
+  color: #b00020;
+}
+.coordinate-search-control .coordinate-search-message.success {
+  color: #176b2c;
+}
+
 </style>
 </head>
 <body>
@@ -111,6 +167,131 @@ function updateCrashLayers(){
 updateCrashLayers();
 const allPoints = crashData.map(f => [f.lat, f.lon]).concat(roundaboutData.map(r => [r.lat, r.lon]));
 if(allPoints.length){ map.fitBounds(allPoints, {padding:[30,30]}); } else { map.setView([32.7,-83.3],7); }
+
+// Coordinate search control
+let coordinateSearchMarker = null;
+
+const coordinateSearch = L.control({position:'topleft'});
+
+coordinateSearch.onAdd = function(map){
+  const div = L.DomUtil.create('div', 'coordinate-search-control');
+
+  div.innerHTML = `
+    <div class="coordinate-search-title">Search Coordinates</div>
+    <div class="coordinate-search-row">
+      <input
+        id="coordinate-search-input"
+        type="text"
+        inputmode="decimal"
+        autocomplete="off"
+        placeholder="33.362888, -84.77785"
+        aria-label="Latitude and longitude"
+      />
+      <button id="coordinate-search-button" type="button">Go</button>
+    </div>
+    <div class="coordinate-search-help">
+      Use latitude, longitude separated by a comma, tab, or space.
+    </div>
+    <div id="coordinate-search-message" class="coordinate-search-message"></div>
+  `;
+
+  L.DomEvent.disableClickPropagation(div);
+  L.DomEvent.disableScrollPropagation(div);
+
+  return div;
+};
+
+coordinateSearch.addTo(map);
+
+function parseCoordinateSearch(value){
+  const parts = String(value ?? '')
+    .trim()
+    .split(/[\s,]+/)
+    .filter(Boolean);
+
+  if(parts.length !== 2){
+    return null;
+  }
+
+  const lat = Number(parts[0]);
+  const lon = Number(parts[1]);
+
+  if(
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lon) ||
+    lat < -90 ||
+    lat > 90 ||
+    lon < -180 ||
+    lon > 180
+  ){
+    return null;
+  }
+
+  return {lat, lon};
+}
+
+function runCoordinateSearch(){
+  const input = document.getElementById('coordinate-search-input');
+  const message = document.getElementById('coordinate-search-message');
+  const parsed = parseCoordinateSearch(input.value);
+
+  message.className = 'coordinate-search-message';
+
+  if(!parsed){
+    message.textContent = 'Enter a valid latitude and longitude.';
+    message.classList.add('error');
+    return;
+  }
+
+  const {lat, lon} = parsed;
+
+  if(coordinateSearchMarker){
+    map.removeLayer(coordinateSearchMarker);
+  }
+
+  coordinateSearchMarker = L.circleMarker(
+    [lat, lon],
+    {
+      radius: 8,
+      color: '#111',
+      weight: 2,
+      fillColor: '#ffffff',
+      fillOpacity: 0.95
+    }
+  )
+    .addTo(map)
+    .bindPopup(
+      `<div class="popup-table">
+        <div><b>Searched coordinate:</b></div>
+        <div>${lat.toFixed(6)}, ${lon.toFixed(6)}</div>
+        <div style="margin-top:7px;">
+          <a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" rel="noopener noreferrer">
+            Open in Google Maps
+          </a>
+        </div>
+      </div>`
+    )
+    .openPopup();
+
+  map.setView([lat, lon], 18);
+
+  message.textContent = `Located: ${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+  message.classList.add('success');
+}
+
+document
+  .getElementById('coordinate-search-button')
+  .addEventListener('click', runCoordinateSearch);
+
+document
+  .getElementById('coordinate-search-input')
+  .addEventListener('keydown', function(event){
+    if(event.key === 'Enter'){
+      event.preventDefault();
+      runCoordinateSearch();
+    }
+  });
+
 const baseLayers = {'OpenStreetMap':osm, 'Satellite / Imagery':satellite};
 const overlays = {'Georgia State Boundary': georgiaBoundary, 'Roundabout Influence Area': roundaboutInfluenceLayer};
 mannerOrder.forEach(m => overlays['Manner: ' + m.replace('Not A Collision with Motor Veh','Not A Collision with Motor Vehicle')] = mannerLayers[m]);
